@@ -2,8 +2,8 @@
 " File:         VimExplorer.vim
 " Brief:        VE - the File Manager within Vim!
 " Authors:      Ming Bai <mbbill AT gmail DOT com>
-" Last Change:  2007-07-12 00:59:52
-" Version:      0.95
+" Last Change:  2007-07-18 19:44:12
+" Version:      0.96
 " Licence:      LGPL
 "
 " Usage:        :h VimExplorer
@@ -520,7 +520,7 @@ function! VEPlatform.copyMultiFile(fileList,topath)
             call self.copyfile(i,a:topath)
         endif
     endfor
-    echohl Special | echomsg " " . filecount " files pasted!" | echohl None
+    echohl Special | echomsg " " . filecount " file(s) pasted!" | echohl None
 endfunction
 
 function! VEPlatform.copyfile(filename,topath)
@@ -745,7 +745,7 @@ endfunction
 "delete multiple files/directory.
 "return 0:failed  1:success
 function! VEPlatform.deleteMultiple(fileList)
-    if g:VEConf.fileDeleteConfirm && !self.confirm("Are you sure to delete selected files ?",1)
+    if g:VEConf.fileDeleteConfirm && !self.confirm("Are you sure to delete selected file(s) ?",1)
         echo " "
         return 0
     endif
@@ -1906,7 +1906,7 @@ function! s:VEFilePanel.createActions()
     " User defined map
     for i in keys(g:VEConf_normalHotKeys)
         exec "nnoremap <silent> <buffer> " . g:VEConf_normalHotKeys[i] .
-                    \" :call VE_normalAction(\"" . i . "\")<cr>"
+                    \" :call VE_NormalAction(\"" . i . "\")<cr>"
     endfor
     for i in keys(g:VEConf_singleFileHotKeys)
         exec "nnoremap <silent> <buffer> " . g:VEConf_singleFileHotKeys[i] .
@@ -2718,7 +2718,7 @@ function! s:InstallDocumentation(full_name, revision)
 endfunction
 
 " Doc installation call {{{1
-silent call s:InstallDocumentation(expand('<sfile>:p'),"0.95")
+silent call s:InstallDocumentation(expand('<sfile>:p'),"0.96")
 "============================================================
 finish
 
@@ -2768,7 +2768,7 @@ CONTENTS                                        *VimExplorer-contents*
 ==============================================================================
 1.  Intro                                       *VimExplorer-start*
 
-What is VimExplorer £¿
+What is VimExplorer ?
 VimExplorer is a file manager, it can do a lot of file operations such as
 copy, delete, move, preview, search and so on. Also it has a variety of other
 capacities and customization abilities.
