@@ -2,8 +2,8 @@
 " File:         VimExplorer.vim
 " Brief:        VE - the File Manager within Vim!
 " Authors:      Ming Bai <mbbill AT gmail DOT com>
-" Last Change:  2007-07-18 19:44:12
-" Version:      0.96
+" Last Change:  2007-07-25 00:50:24
+" Version:      0.97
 " Licence:      LGPL
 "
 " Usage:        :h VimExplorer
@@ -17,6 +17,13 @@ if v:version < 700
      finish
 endif
 
+" See if we are already loaded, thanks to Dennis Hostetler.
+if exists("loaded_vimExplorer")
+    finish
+else
+    let loaded_vimExplorer = 1
+endif
+"
 
 "Load config {{{1
 "#######################################################################
@@ -30,11 +37,11 @@ let VEConf = {}
 "==========================================
 
 "Important! It is used to do iconv() to the path when calling
-"sytem() function.  Mine is Simplified Chinese.
+"sytem() function.  Mine is Simplified Chinese (cp936).
 if exists("g:VEConf_systemEncoding")
     let VEConf.systemEncoding = g:VEConf_systemEncoding
 else
-    let VEConf.systemEncoding = 'cp936'
+    let VEConf.systemEncoding = ''
 endif
 
 "VimExplorer will check all the disks in this list at startup.
@@ -71,7 +78,7 @@ else
 endif
 
 "External explorer name
-if has("win32")
+if (has("win32") || has("win95") || has("win64") || has("win16"))
     if exists("g:VEConf_externalExplorer")
         let VEConf.externalExplorer = g:VEConf_externalExplorer
     else
@@ -97,6 +104,22 @@ if exists("g:VEConf_favorite")
     let VEConf.favorite = g:VEConf_favorite
 else
     let VEConf.favorite = ".ve_favorite"
+endif
+
+"Overwrite existing files.
+"boverWrite 0 ask, 1 allyes, 2 allno
+if exists("g:VEConf_overWriteExisting")
+    let VEConf.overWriteExisting = g:VEConf_overWriteExisting
+else
+    let VEConf.overWriteExisting = 0
+endif
+
+"Kde or gonme.
+if !exists("g:VEConf_usingKDE")
+    let g:VEConf_usingKDE = 0
+endif
+if !exists("g:VEConf_usingGnome")
+    let g:VEConf_usingGnome = 0
 endif
 
 "Tree panel settings
@@ -136,14 +159,6 @@ if exists("g:VEConf_treeSortDirection")
     let VEConf.treeSortDirection = g:VEConf_treeSortDirection
 else
     let VEConf.treeSortDirection = 1
-endif
-
-"Overwrite existing files.
-"boverWrite 0 ask, 1 allyes, 2 allno
-if exists("g:VEConf_overWriteExisting")
-    let VEConf.overWriteExisting = g:VEConf_overWriteExisting
-else
-    let VEConf.overWriteExisting = 0
 endif
 
 "File panel settings
@@ -244,7 +259,7 @@ let VEConf.filePanelHotkey.search          = 'g/'
 let VEConf.filePanelHotkey.markPlace       = 'M'
 let VEConf.filePanelHotkey.gotoPlace       = "'"
 let VEConf.filePanelHotkey.viewMarks       = 'B'
-"swith between dirs
+"Browsing
 let VEConf.filePanelHotkey.toUpperDir      = '<bs>'
 let VEConf.filePanelHotkey.gotoForward     = '.'
 let VEConf.filePanelHotkey.gotoBackward    = ','
@@ -412,10 +427,19 @@ let VEPlatform = {}
 
 "it's a static class, no constructor
 
+"has win
+function! VEPlatform.haswin32()
+    if (has("win32") || has("win95") || has("win64") || has("win16"))
+        return 1
+    else
+        return 0
+    endif
+endfunction
+
 "return a path always end with slash.
 function! VEPlatform.getcwd()
     let path = getcwd()
-    if has("win32") && !&ssl
+    if g:VEPlatform.haswin32() && !&ssl
         if path[-1:] != "\\"
             let path = path . "\\"
         endif
@@ -429,7 +453,7 @@ endfunction
 
 "get home path, end with a slash
 function! VEPlatform.getHome()
-    if has("win32") && !&ssl
+    if g:VEPlatform.haswin32() && !&ssl
         if $HOME[-1:] != "\\"
             return $HOME . "\\"
         else
@@ -444,21 +468,31 @@ function! VEPlatform.getHome()
     endif
 endfunction
 
+function! VEPlatform.escape(path)
+    if g:VEPlatform.haswin32()
+        return escape(a:path,'%#')
+    else
+        return escape(a:path,' %#')
+    endif
+endfunction
+
 "start a program and then return to vim, no wait.
 function! VEPlatform.start(path)
-    let convPath = escape(a:path,'#')
+    let convPath = self.escape(a:path)
     "escape() function will do iconv to the string, so call it
     "before iconv().
-    if has("win32")
+    if g:VEPlatform.haswin32()
         let convPath = substitute(convPath,'/',"\\",'g')
         let convPath = " start \"\" \"" . convPath . "\""
         call self.system(convPath)
     else
-        if exists("g:VEConf_usingKDE") && g:VEConf_usingKDE == 1
+        if g:VEConf_usingKDE
             let convPath = "kfmclient exec " . convPath
             call self.system(convPath)
-        endif
-        if exists("g:VEConf_usingGnome") && g:VEConf_usingGnome == 1
+        elseif g:VEConf_usingGnome
+            let convPath = "gnome-open " . convPath
+            call self.system(convPath)
+        else " default using gnome-open.
             let convPath = "gnome-open " . convPath
             call self.system(convPath)
         endif
@@ -466,7 +500,9 @@ function! VEPlatform.start(path)
 endfunction
 
 function! VEPlatform.system(cmd)
-    let convCmd = escape(a:cmd,'#')
+    "can not escape here! example: 'rm -r blabla\ bbb'
+    "let convCmd = escape(a:cmd,' %#')
+    let convCmd = a:cmd
     if g:VEConf.systemEncoding != ''
         let convCmd = iconv(convCmd,&encoding,g:VEConf.systemEncoding)
     endif
@@ -524,9 +560,9 @@ function! VEPlatform.copyMultiFile(fileList,topath)
 endfunction
 
 function! VEPlatform.copyfile(filename,topath)
-    let filename = a:filename
-    let topath = a:topath
-    if has("win32")
+    let filename = self.escape(a:filename)
+    let topath = self.escape(a:topath)
+    if g:VEPlatform.haswin32()
         let filename = substitute(a:filename,'/',"\\",'g')
         let topath = substitute(a:topath,'/',"\\",'g')
         if isdirectory(filename)
@@ -551,7 +587,10 @@ endfunction
 function! VEPlatform.mkdir(path)
     if g:VEConf.systemEncoding != ''
         let convPath = iconv(a:path,&encoding,g:VEConf.systemEncoding)
+    else
+        let convPath = a:path
     endif
+    call confirm(convPath)
     return mkdir(convPath)
 endfunction
 
@@ -601,11 +640,16 @@ function! VEPlatform.globpath(path)
 endfunction
 
 function! VEPlatform.cdToPath(path)
-    exec "lcd " . escape(a:path,'#')
+    try
+        "In win32, VE can create folder starts with space. So ...
+        exec "lcd " . escape(a:path,' %#')
+    catch
+        echohl ErrorMsg | echomsg "Can not cd to path: " . a:path | echohl None
+    endtry
 endfunction
 
 function! VEPlatform.startShell()
-    if has("win32")
+    if g:VEPlatform.haswin32()
         !start cmd.exe
     else
         shell
@@ -613,15 +657,15 @@ function! VEPlatform.startShell()
 endfunction
 
 function! VEPlatform.startExplorer()
-    let pwd = g:VEPlatform.getcwd()
-    if has("win32")
+    let pwd = self.escape(g:VEPlatform.getcwd())
+    if g:VEPlatform.haswin32()
         let pwd = substitute(pwd,'/',"\\",'g')
     endif
     call self.system(g:VEConf.externalExplorer . " " . pwd)
 endfunction
 
 function! VEPlatform.getRoot(rootDict)
-    if has("win32")
+    if g:VEPlatform.haswin32()
         "Create new root list.
         let newRootList = []
         for i in g:VEConf.win32Disks
@@ -664,7 +708,7 @@ function! VEPlatform.pathToName(path)
     let time = strftime("%Y-%m-%d %H:%M:%S",getftime(a:path))
     let size = getfsize(a:path)
     let perm = getfperm(a:path)
-    if has("win32") && !&ssl
+    if g:VEPlatform.haswin32() && !&ssl
         if a:path[-1:] != "\\"
             let name = substitute(a:path,'^.*\\','','g')
         else
@@ -691,7 +735,7 @@ function! VEPlatform.pathToName(path)
 endfunction
 
 function! VEPlatform.getUpperDir(path)
-    if has("win32") && !&ssl
+    if g:VEPlatform.haswin32() && !&ssl
         return substitute(a:path,'\\\zs[^\\]\+\\$','','g')
     else
         return substitute(a:path,'\/\zs[^/]\+\/$','','g')
@@ -758,10 +802,10 @@ endfunction
 function! VEPlatform.delete(name)
     if isdirectory(a:name)
         "I have no idea how to judge if it is succeed :(
-        if has("win32")
-            call g:VEPlatform.system(" rmdir /S /Q \"" . a:name . "\"")
+        if g:VEPlatform.haswin32()
+            call g:VEPlatform.system(" rmdir /S /Q \"" . self.escape(a:name) . "\"")
         else
-            call g:VEPlatform.system("rm -r " . a:name)
+            call g:VEPlatform.system("rm -r " . self.escape(a:name))
         endif
         return 1
     else
@@ -783,7 +827,7 @@ function! VEPlatform.select(list,title)
         let selectList[i] = i . "  " . selectList[i]
     endfor
     let result = inputlist(selectList)
-    if result > len(selectList) || result <= 0
+    if result > len(a:list) || result <= 0
         return -1
     else
         return result-1
@@ -813,7 +857,7 @@ let s:VENode.childs = {}
 "Object Constructor
 function! s:VENode.init(path)
     let self.path = a:path
-    if has("win32") && !&ssl
+    if g:VEPlatform.haswin32() && !&ssl
         let self.name = matchstr(a:path,'[^\\]*\\$','','g')
     else
         let self.name = matchstr(a:path,'[^/]*\/$','','g')
@@ -828,7 +872,7 @@ function! s:VENode.updateNode()
     let newDirList = []
     for i in split(g:VEPlatform.globpath(self.path),"\n")
         if isdirectory(i) == 1
-            if has("win32") && !&ssl
+            if g:VEPlatform.haswin32() && !&ssl
                 let i = matchstr(i,'[^\\]*$','','g') . "\\"
             else
                 let i = matchstr(i,'[^/]*$','','g') . "/"
@@ -886,7 +930,7 @@ endfunction
 "the path should end with '\' such as c:\aaa\bbb\
 "example "c:\\aaa\\bbb\\" "aaa\\bbb\\" "bbb\\"
 function! s:VENode.toggle(path)
-    if has("win32") && !&ssl
+    if g:VEPlatform.haswin32() && !&ssl
         let childPath = substitute(a:path,'^.\{-}\\','','g')
     else
         let childPath = substitute(a:path,'^.\{-}\/','','g')
@@ -897,7 +941,7 @@ function! s:VENode.toggle(path)
             call self.updateNode()
         endif
     else
-        if has("win32") && !&ssl
+        if g:VEPlatform.haswin32() && !&ssl
             let nodeName = matchstr(childPath,'^.\{-}\\')
         else
             let nodeName = matchstr(childPath,'^.\{-}\/')
@@ -914,7 +958,7 @@ endfunction
 "the path should end with '\' such as c:\aaa\bbb\
 "example "c:\\aaa\\bbb\\" "aaa\\bbb\\" "bbb\\"
 function! s:VENode.openPath(path)
-    if has("win32") && !&ssl
+    if g:VEPlatform.haswin32() && !&ssl
         let childPath = substitute(a:path,'^.\{-}\\','','g')
     else
         let childPath = substitute(a:path,'^.\{-}\/','','g')
@@ -925,7 +969,7 @@ function! s:VENode.openPath(path)
         endif
         return
     else
-        if has("win32") && !&ssl
+        if g:VEPlatform.haswin32() && !&ssl
             let nodeName = matchstr(childPath,'^.\{-}\\')
         else
             let nodeName = matchstr(childPath,'^.\{-}\/')
@@ -988,7 +1032,7 @@ function! s:VETree.init()
 endfunction
 
 function! s:VETree.togglePath(path)
-    if has("win32") && !&ssl
+    if g:VEPlatform.haswin32() && !&ssl
         let rootNodeName = matchstr(a:path,'^.\{-}\\')
     else
         let rootNodeName = matchstr(a:path,'^.\{-}\/')
@@ -997,7 +1041,7 @@ function! s:VETree.togglePath(path)
 endfunction
 
 function! s:VETree.openPath(path)
-    if has("win32") && !&ssl
+    if g:VEPlatform.haswin32() && !&ssl
         let rootNodeName = matchstr(a:path,'^.\{-}\\')
     else
         let rootNodeName = matchstr(a:path,'^.\{-}\/')
@@ -1112,7 +1156,7 @@ function! s:VETreePanel.show()
     if self.setFocus()
         return
     endif
-    let cmd = self.splitLocation . " " . self.splitMode . self.width . ' new ' . self.name
+    let cmd = self.splitLocation . " " . self.splitMode . ' ' . self.width . ' new ' . self.name
     silent! execute cmd
     let VETreeWinNr = bufwinnr(self.name)
     if VETreeWinNr != -1
@@ -1151,6 +1195,10 @@ function! s:VETreePanel.hide()
     endif
 endfunction
 
+function! s:VETreePanel.getPathUnderCursor(num)
+    return self.tree.content[a:num][1]
+endfunction
+
 function! s:VETreePanel.nodeClicked(num)
     if self.tree.content[a:num][1] == ""
         return
@@ -1171,7 +1219,6 @@ function! s:VETreePanel.pathChanged(path)
     if self.path == a:path
         return
     endif
-    "exec "cd " . escape(a:path,'#')
     call g:VEPlatform.cdToPath(a:path)
     let self.path = g:VEPlatform.getcwd()
     call self.tree.openPath(self.path)
@@ -1187,7 +1234,7 @@ function! s:VETreePanel.createActions()
     exec "nnoremap <silent> <buffer> " . g:VEConf.treePanelHotkey.toUpperDir .     " :call VE_ToUpperDir()<cr>"
     exec "nnoremap <silent> <buffer> " . g:VEConf.treePanelHotkey.switchPanel .    " <c-w><c-w>"
     exec "nnoremap <silent> <buffer> " . g:VEConf.treePanelHotkey.favorite .       " :call VE_GotoFavorite()<cr>"
-    exec "nnoremap <silent> <buffer> " . g:VEConf.treePanelHotkey.addToFavorite .  " :call VE_AddToFavorite()<cr>"
+    exec "nnoremap <silent> <buffer> " . g:VEConf.treePanelHotkey.addToFavorite .  " :call VE_AddToFavorite('treePanel')<cr>"
     exec "nnoremap <silent> <buffer> " . g:VEConf.treePanelHotkey.browseHistory .  " :call VE_BrowseHistory()<cr>"
     exec "nnoremap <silent> <buffer> " . g:VEConf.treePanelHotkey.gotoPath .       " :call VE_OpenPath()<cr>"
     exec "nnoremap <silent> <buffer> " . g:VEConf.treePanelHotkey.quitVE .         " :call VEDestroy()<cr>"
@@ -1234,8 +1281,8 @@ function! s:VEFilePanel.show()
     if self.setFocus()
         return
     endif
-    let cmd = self.splitLocation . " " . self.splitMode . self.width . ' new ' . self.name
-    exec cmd
+    let cmd = self.splitLocation . " " . self.splitMode . ' ' . self.width . ' new ' . self.name
+    silent! exec cmd
     if !self.setFocus()
         echoerr "create file window failed!"
     endif
@@ -1347,13 +1394,13 @@ function! s:VEFilePanel.sortByName()
     "  "name" : "path"
     " }
     for i in self.fileList
-        if has("win32") && !&ssl
+        if g:VEPlatform.haswin32() && !&ssl
             let name =  matchstr(i,'[^\\]*$','','g')
         else
             let name =  matchstr(i,'[^/]*$','','g')
         endif
         if isdirectory(i)
-            if has("win32") && !&ssl
+            if g:VEPlatform.haswin32() && !&ssl
                 if i[-1:] != "\\"
                     let i = i . "\\"
                 endif
@@ -1391,7 +1438,7 @@ function! s:VEFilePanel.sortByTime()
         let time = strftime("%Y-%m-%d %H:%M:%S",getftime(i))
         let time = time . i "let the key of dict unique
         if isdirectory(i)
-            if has("win32") && !&ssl
+            if g:VEPlatform.haswin32() && !&ssl
                 if i[-1:] != "\\"
                     let i = i . "\\"
                 endif
@@ -1470,7 +1517,7 @@ function! s:VEFilePanel.sortByType()
             if !has_key(fileGroup,'#Directory') "assert file name does not contain '#'
                 let fileGroup['#Directory'] = []
             endif
-            if has("win32") && !&ssl
+            if g:VEPlatform.haswin32() && !&ssl
                 if i[-1:] != "\\"
                     let i = i . "\\"
                 endif
@@ -1484,7 +1531,7 @@ function! s:VEFilePanel.sortByType()
         endif
         "hidden files starts with '.'  "hidden file should use
         "globpath ".*"
-        if has("win32") && !&ssl
+        if g:VEPlatform.haswin32() && !&ssl
             let matchStr = '\\\..\+$'
         else
             let matchStr = '\/\..\+$'
@@ -1496,7 +1543,7 @@ function! s:VEFilePanel.sortByType()
             call add(fileGroup['#Hidden files'],i)
             continue
         endif
-        if has("win32") && !&ssl
+        if g:VEPlatform.haswin32() && !&ssl
             let fileExtension = matchstr(substitute(i,'^.*\\','','g'),'\.[^.]\{-}$')
         else
             let fileExtension = matchstr(substitute(i,'^.*\/','','g'),'\.[^.]\{-}$')
@@ -1743,7 +1790,7 @@ function! s:VEFilePanel.markViaRegexp(regexp)
     endif
     let self.selectedFiles = []
     for i in self.displayList
-        if has("win32") && !&ssl
+        if g:VEPlatform.haswin32() && !&ssl
             let name = matchstr(i[1],'[^\\]*.$','','g')
         else
             let name = matchstr(i[1],'[^/]*.$','','g')
@@ -1879,7 +1926,7 @@ function! s:VEFilePanel.createActions()
     exec "nnoremap <silent> <buffer> " . g:VEConf.filePanelHotkey.newDirectory .   " :call VE_NewDirectory()<cr>"
     exec "nnoremap <silent> <buffer> " . g:VEConf.filePanelHotkey.markViaRegexp .  " :call VE_MarkViaRegexp('')<cr>"
     exec "nnoremap <silent> <buffer> " . g:VEConf.filePanelHotkey.favorite .       " :call VE_GotoFavorite()<cr>"
-    exec "nnoremap <silent> <buffer> " . g:VEConf.filePanelHotkey.addToFavorite .  " :call VE_AddToFavorite()<cr>"
+    exec "nnoremap <silent> <buffer> " . g:VEConf.filePanelHotkey.addToFavorite .  " :call VE_AddToFavorite('filePanel')<cr>"
     exec "nnoremap <silent> <buffer> " . g:VEConf.filePanelHotkey.browseHistory .  " :call VE_BrowseHistory()<cr>"
     exec "nnoremap <silent> <buffer> " . g:VEConf.filePanelHotkey.gotoPath .       " :call VE_OpenPath()<cr>"
     exec "nnoremap <silent> <buffer> " . g:VEConf.filePanelHotkey.diff2files .     " :call VE_Diff()<cr>"
@@ -1933,6 +1980,9 @@ function! s:VEFilePanel.createSyntax()
     call g:VEConf.filePanelSyntax()
 endfunction
 
+function! s:VEFilePanel.getPathUnderCursor(num)
+    return self.displayList[a:num][1]
+endfunction
 
 " class VEPreviewPanel {{{1
 "=============================
@@ -2151,6 +2201,24 @@ function! s:VEContainer.showClipboard()
     echohl None
 endfunction
 
+" Get path name under cursor
+function! VE_getPathUnderCursor(where)
+    let winName = matchstr(bufname("%"),'_[^_]*$')
+    let path = ''
+    if has_key(s:VEContainer,winName)
+        if a:where == 'treePanel'
+            let path = s:VEContainer[winName].treePanel.getPathUnderCursor(line(".")-1)
+        elseif a:where == 'filePanel'
+            let path = s:VEContainer[winName].filePanel.getPathUnderCursor(line(".")-1)
+        endif
+    endif
+
+    if !isdirectory(path)
+        return ''
+    else
+        return path
+    endif
+endfunction
 
 
 "Command handlers
@@ -2511,8 +2579,19 @@ function! VE_GotoFavorite()
     call VE_GotoPath(fav[result])
 endfunction
 
-function! VE_AddToFavorite()
-    let cwd = g:VEPlatform.getcwd()
+function! VE_AddToFavorite(where)
+    let winNr = bufwinnr('%')
+    let winName = matchstr(bufname("%"),'_[^_]*$')
+    if has_key(s:VEContainer,winName)
+        let cwd = s:VEContainer[winName].filePanel.path
+    else
+        return
+    endif
+    let pathUnderCursor = VE_getPathUnderCursor(a:where)
+    if pathUnderCursor != ''
+        " if no path name under cursor, use current working path
+        let cwd = pathUnderCursor
+    endif
     let fav_filename = g:VEPlatform.getHome() . g:VEConf.favorite
     let fav = []
     if findfile(fav_filename) != ''
@@ -2527,12 +2606,13 @@ function! VE_AddToFavorite()
         let fav = readfile(fav_filename)
     endif
     if index(fav,cwd) != -1
-        echohl WarningMsg | echomsg "Current directory already in the favorite list." | echohl None
+        "echohl WarningMsg | echomsg "Current directory already in the favorite list." | echohl None
+        echohl WarningMsg | echomsg "[ ".cwd." ] already in the favorite!" | echohl None
         return
     endif
     call add(fav,cwd)
     if writefile(fav,fav_filename) == 0
-        echohl Special | echomsg "Current directory added to favorite list." | echohl None
+        echohl Special | echomsg "[ ".cwd." ] added to favorite." | echohl None
     else
         echoerr "Can not write favorite folder list to file!"
     endif
@@ -2718,7 +2798,7 @@ function! s:InstallDocumentation(full_name, revision)
 endfunction
 
 " Doc installation call {{{1
-silent call s:InstallDocumentation(expand('<sfile>:p'),"0.96")
+silent call s:InstallDocumentation(expand('<sfile>:p'),"0.97")
 "============================================================
 finish
 
@@ -2763,6 +2843,7 @@ CONTENTS                                        *VimExplorer-contents*
     7.3  Command Customization..................|VimExplorer-custcommand|
 8.  The Author..................................|VimExplorer-author|
 9.  Problems and Fixes..........................|VimExplorer-problems|
+10. Changelog...................................|VimExplorer-changelog|
 
 
 ==============================================================================
@@ -2799,83 +2880,102 @@ will have a happy journey using the powerful file manager.
 
 
 ==============================================================================
-2.  functionality                               *VimExplorer-functionality*
+2.  Functionality                               *VimExplorer-functionality*
 
 2.1  Tree Panel Hotkeys                         *VimExplorer-treehotkey*
 
-Key             Description~
-<2-LeftMouse>   Open/Close/Switch to current node.
-<bs>            Go to upper directory.
-<cr>            Open/Close/Switch to current node.
-<tab>           Switch to File Panel.
-b               View browse history.
-f               View favorite folder list.
-F               Add current path to favorite folder list.
-r               Refresh the tree panel.
-t               Toggle the file panel.
-<c-g>           Change to another path.
-Q               Quit VimExplorer.
+Member of |VEConf_treeHotkey|, refer to section 7.2 .
+
+Mapping                        Key             Description~
+help                    ?               Help.
+toggleNode              <cr>            Open/Close/Switch to current node.
+toggleNodeMouse         <2-LeftMouse>   Open/Close/Switch to current node.
+refresh                 r               Refresh the tree panel.
+favorite                f               View favorite folder list.
+addToFavorite           F               Add the folder under cursor to
+                                        favorite list. If no path under
+                                        cursor, use current working path.
+browseHistory           b               View browse history.
+toggleFilePanel         t               Toggle the file panel.
+toUpperDir              <bs>            Go to upper directory.
+switchPanel             <tab>           Switch to File Panel.
+gotoPath                <c-g>           Change to another path.
+quitVE                  Q               Quit VimExplorer.
 
 2.2  File Panel Hotkeys                         *VimExplorer-filehotkey*
 
-Key             Description~
-+d              Create a new directory.
-+f              Create a new file.
-,               Backward.
-.               Forward.
-;c              Start a shell from current path.
-;e              Start another file manager(nautilus,konquer,explorer.exe)。
-;r              Open Renamer (Note 1)
-<2-LeftMouse>   Enter the directory or open the file by default association.
-<bs>            Go to upper directory.
-<c-g>           Change to another path.
-<cr>            Enter the directory or open the file by default association.
-<s-space>       Move the cursor up and mark/unmark the file under cursor.
-<space>         Mark/unmark the file under cursor and move the cursor down.
-<tab>           Switch to the Tree Panel.
-=               Diff two files.
-Q               Quit VimExplorer。
-R               Rename the file under cursor.
-H               Toggle show hidden files.(files start with '.')
-U               Close the preview panel.
-b               View browse history.
-dd              Delete file under cursor.
-e               Edit file in new tab.
-f               View favorite folder list.
-F               Add current path to favorite folder list.
-i               Toggle file sort mode (type/data/file extension).
-mc              Clear all marks.
-md              Mark all directories.
-me              Mark all executable files.
-mr              Mark via regular expression.
-mv              Mark all vim files.
-p               Paste.
-r               Refresh.
-sd              Delete marked files.
-se              Edit every marked file in separate tabs.
-sx              Cut marked files.
-sy              Copy marked files.
-t               Toggle the Tree Panel.
-u               Preview.
-xx              Cut file under cursor.
-yl              Show clipboard.
-yy              Copy file under cursor.
-g/              Search.
-m{a-z}          Put current path to register(a-z).
-'{a-z}          Jump to path in register(a-z).
-B               View path in register.
+Member of |VEConf_fileHotkey|, refer to section 7.2 .
+
+Mapping                 Default         Description~
+help                    ?               Help.
+itemClicked             <cr>            Enter the directory or open the file
+                                        by default association.
+itemClickMouse          <2-LeftMouse>   Enter the directory or open the file
+                                        by default association.
+refresh                 r               Refresh.
+toggleTreePanel         t               Toggle the Tree Panel.
+toggleModes             i               Toggle file sort mode (type/data/file
+                                        extension).
+newFile                 +f              Create a new file.
+newDirectory            +d              Create a new directory.
+switchPanel             <tab>           Switch to the Tree Panel.
+quitVE                  Q               Quit VimExplorer。
+toggleHidden            H               Toggle show hidden files.(files start
+                                        with '.')
+search                  g/              Search.
+markPlace               m{a-z}          Put current path to register(a-z).
+gotoPlace               '{a-z}          Jump to path in register(a-z).
+viewMarks               B               View path in register.
+toUpperDir              <bs>            Go to upper directory.
+gotoForward             .               Forward.
+gotoBackward            ,               Backward.
+favorite                f               View favorite folder list.
+addToFavorite           F               Add the folder under cursor to
+                                        favorite list. If no path under
+                                        cursor, use current working path.
+browseHistory           b               View browse history.
+gotoPath                <c-g>           Change to another path.
+rename                  R               Rename the file under cursor.
+yankSingle              yy              Copy file under cursor.
+cutSingle               xx              Cut file under cursor.
+showYankList            yl              Show clipboard.
+deleteSingle            dd              Delete file under cursor.
+openPreview             u               Preview.
+closePreview            U               Close the preview panel.
+toggleSelectUp          <s-space>       Move the cursor up and mark/unmark the
+                                        file under cursor.
+toggleSelectDown        <space>         Mark/unmark the file under cursor and
+                                        move the cursor down.
+markViaRegexp           mr              Mark via regular expression.
+markVimFiles            mv              Mark all vim files.
+markDirectory           md              Mark all directories.
+markExecutable          me              Mark all executable files.
+clearSelect             mc              Clear all marks.
+deleteSelected          sd              Delete marked files.
+yankSelected            sy              Copy marked files.
+cutSelected             sx              Cut marked files.
+tabViewMulti            se              Edit every marked file in separate
+                                        tabs.
+paste                   p               Paste.
+diff2files              =               Diff two files.
+tabView                 e               Edit file in new tab.
+openRenamer             ;r              Open Renamer (Note 1)
+startShell              ;c              Start a shell from current path.
+startExplorer           ;e              Start another file
+                                        manager(nautilus,konquer,explorer.exe)。
 
 Visual Mode Hotkeys~
-<space>         Mark files.
-d               Delete files.
-x               Cut files.
-y               Copy files.
+visualSelect            <space>         Mark files.
+visualDelete            d               Delete files.
+visualYank              y               Copy files.
+visualCut               x               Cut files.
+tabView                 e               View files in new tabs.
 
 2.3  Commands                                   *VimExplorer-commands*
 >
     VE
 <
-Start VimExplorer。
+Start VimExplorer.
 
 >
     VEC
@@ -2892,9 +2992,9 @@ browse history. By default, if a directory has it's own child directories, |+|
 will be displayed before it's name, and It will cause a little performance
 lost.  If you don't need this feature ,set the following variable to zero can
 disable it.
-
+>
     let VEConf_showFolderStatus = 0
-
+<
 There are some differences between win32 and other platforms. In win32, there
 are several root nodes (such as C:\,D:\), but one root node (/) in other
 platforms.
@@ -2931,7 +3031,7 @@ By default, the depth of browse history is 100. Controled by this variable:
 The favorite folder list is saved to the file $HOME/.ve_favorite . It will be
 updated when new folder is added to favorite by hotkey |F|. The format of
 ".ve_favorite" is very simple: every line is a path, so edit it is quite
-simple.
+easy.
 
 3.5  Temp Marks                                 *VimExplorer-tempmark*
 
@@ -3015,208 +3115,102 @@ expended by shell.
 7.  Customization                               *VimExplorer-customize*
 
 7.1  Normal Options                             *VimExplorer-custnormal*
+
 Common Options~
->
-    g:VEConf_systemEncoding
-<
-It controls the encoding of vim calling function system(). If your system
-encoding is different from '&encoding', set this value to system encoding.
-Example: let g:VEConf_systemEncoding = 'utf-8'
-Default: cp936 (for Simplified Chinese)
->
-    g:VEConf_win32Disks
-<
-The default value is all 26 volumes. Set this value to fit your system can
-increase the startup speed. If you are not using Microsoft Windows, ignore it.
-Example: let VEConf_win32Disks = ["A:","B:","C:","D:"]
->
-    g:VEConf_browseHistory
-<
-Depth of browse history.
-Default: 100
->
-    g:VEConf_previewSplitLocation
-<
-Split location of preview panel. Optional parameters are:
-"belowright","topleft","leftabove","botright".
-Default: "belowright"
->
-    g:VEConf_showHiddenFiles
-<
-Show hidden files, 1: show, 0: hide.
-Default: 1
->
-    g:VEConf_externalExplorer
-<
-Name of the external file explorer. You can set this value according to you
-system.
-Default: "explorer.exe"(win32)
-         "nautilus"  (gnome)
->
-    g:VEConf_sortCaseSensitive
-<
-0: not case sensitive  1: case sensitive
-Default: 1
->
-    g:VEConf_favorite
-<
-Favorite folder file name. Always stored in $HOME.
-Default: ".ve_favorite"
->
-    g:VEConf_overWriteExisting
-<
-Ask when over write existing files.
-0: ask  1: always over write  2: always not over write
-Default: 0
+
+|g:VEConf_systemEncoding|           It controls the encoding of vim calling
+                                    function system(). If your system encoding
+                                    is different from '&encoding', set this
+                                    value to system encoding.  Example: let
+                                    g:VEConf_systemEncoding = 'utf-8'
+                                    ,Default: '' (empty)
+
+|g:VEConf_win32Disks|               The default value is all 26 volumes. Set this
+                                    value to fit your system can increase the
+                                    startup speed. If you are not using
+                                    Microsoft Windows, ignore it.  Example:
+                                    let VEConf_win32Disks =
+                                    ["A:","B:","C:","D:"]
+
+|g:VEConf_browseHistory|            Depth of browse history.  Default: 100
+
+|g:VEConf_previewSplitLocation|     Split location of preview panel. Optional
+                                    parameters are:
+                                    "belowright","topleft","leftabove","botright".
+                                    Default: "belowright"
+
+|g:VEConf_showHiddenFiles|          Show hidden files, 1: show,0: hide. Default: 1
+
+|g:VEConf_externalExplorer|         Name of the external file explorer. You can
+                                    set this value according to you system.
+                                    Default: "explorer.exe"(win32) "nautilus"
+                                    (gnome)
+
+|g:VEConf_sortCaseSensitive|        0: not case sensitive  1: case sensitive
+                                    Default: 1
+
+|g:VEConf_favorite|                 Favorite folder file name. Always stored in
+                                    $HOME.  Default: ".ve_favorite"
+
+|g:VEConf_overWriteExisting|        Ask when over write existing files.
+                                    0: ask  1: always over write  2: always
+                                    not over write Default: 0
+
+|g:VEConf_usingKDE|                 If set to 1, use "kfmclient"
+|g:VEConf_usingGnome|               If set to 1, use "gnome-open"
 
 Tree Panel Options~
->
-    g:VEConf_showFolderStatus
-<
-It controls show '+' before the folders which have their own child folders. If
-it is set to 1, every folder will have a '+'.
-Default: 1
->
-    g:VEConf_treePanelWidth
-<
-Width of tree panel.
-Default: 30
->
-    g:VEConf_treePanelSplitMode
-<
-Split mode of tree panel.
-Default: "vertical"
->
-    g:VEConf_treePanelSplitLocation
-<
-Split location of tree panel, Optional parameters: "belowright" , "topleft" ,
-"leftabove" , "botright"
-Default: "leftabove"
->
-    g:VEConf_treeSortDirection
-<
-Sort direction. 1: A-Z  0: Z-A
-Default: 1
+
+|g:VEConf_showFolderStatus|         It controls show '+' before the folders which
+                                    have their own child folders. If it is set
+                                    to 1, every folder will have a '+'.
+                                    Default: 1
+
+|g:VEConf_treePanelWidth|           Width of tree panel. Default: 30
+
+|g:VEConf_treePanelSplitMode|       Split mode of tree panel. Default: "vertical"
+
+|g:VEConf_treePanelSplitLocation|   Split location of tree panel, Optional
+                                    parameters: "belowright" , "topleft" ,
+                                    "leftabove" , "botright", Default:
+                                    "leftabove"
+
+|g:VEConf_treeSortDirection|        Sort direction. 1: A-Z  0: Z-A. Default: 1
 
 File Panel Options~
->
-    g:VEConf_fileGroupSortDirection
-<
-Sort direction. 1: A-Z  0: Z-A
-Default: 1
->
-    g:VEConf_fileDeleteConfirm
-<
-Confirm when deleting a file. 1: confirm  2: no confirm
-Default: 1
->
-    g:VEConf_filePanelWidth
-<
-Width of file panel.
-Default: 40
->
-    g:VEConf_filePanelSplitMode
-<
-Split mode of file panel.
-Default: "vertical"
->
-    g:VEConf_filePanelSplitLocation
-<
-Split location of file panel, Optional parameters: "belowright" , "topleft" ,
-"leftabove" , "botright"
-Default: "leftabove"
->
-    g:VEConf_filePanelSortType
-<
-File sort type. 1: sort by name  2: sort by time  3: sort by type
-Default: 3
->
-    g:VEConf_showFileSizeInMKB
-<
-1: Show file size in MKB format. 0: always show file size in byte.
+
+|g:VEConf_fileGroupSortDirection|   Sort direction. 1: A-Z  0: Z-A, Default: 1
+
+|g:VEConf_fileDeleteConfirm|        Confirm when deleting a file. 1: confirm  2:
+                                    no confirm. Default: 1
+
+|g:VEConf_filePanelWidth|           Width of file panel. Default: 40
+
+|g:VEConf_filePanelSplitMode|       Split mode of file panel. Default: "vertical"
+
+|g:VEConf_filePanelSplitLocation|   Split location of file panel, Optional
+                                    parameters: "belowright" , "topleft" ,
+                                    "leftabove" , "botright" ,Default:
+                                    "leftabove"
+
+|g:VEConf_filePanelSortType|        File sort type. 1: sort by name  2: sort by
+                                    time  3: sort by type, Default: 3
+
+|g:VEConf_showFileSizeInMKB|        1: Show file size in MKB format. 0: always
+                                    show file size in byte.
 
 7.2  Hotkey Customization                       *VimExplorer-custhotkey*
 
 All user defined hotkeys are controlled by the two dicts:
-g:VEConf_treeHotkey    and    g:VEConf_fileHotkey
+|g:VEConf_treeHotkey|    and    |g:VEConf_fileHotkey|
 Example:
 >
     let g:VEConf_treeHotkey = {}
+    let g:VEConf_treeHotkey.help = '??'
     let g:VEConf_treeHotkey.quitVE = 'qq'
     let g:VEConf_treeHotkey.switchPanel = '<s-tab>'
 <
-All definable hotkeys are:
-
-Tree Panel hotkeys~
-VEConf_treeHotkey.help            = '?'
-VEConf_treeHotkey.toggleNode      = '<cr>'
-VEConf_treeHotkey.toggleNodeMouse = '<2-LeftMouse>'
-VEConf_treeHotkey.refresh         = 'r'
-VEConf_treeHotkey.favorite        = 'f'
-VEConf_treeHotkey.addToFavorite   = 'F'
-VEConf_treeHotkey.browseHistory   = 'b'
-VEConf_treeHotkey.toggleFilePanel = 't'
-VEConf_treeHotkey.toUpperDir      = '<bs>'
-VEConf_treeHotkey.switchPanel     = '<tab>'
-VEConf_treeHotkey.gotoPath        = '<c-g>'
-VEConf_treeHotkey.quitVE          = 'Q'
-
-File Panel hotkeys~
-normal hotkey~
-VEConf_fileHotkey.help            = '?'
-VEConf_fileHotkey.itemClicked     = '<cr>'
-VEConf_fileHotkey.itemClickMouse  = '<2-LeftMouse>'
-VEConf_fileHotkey.refresh         = 'r'
-VEConf_fileHotkey.toggleTreePanel = 't'
-VEConf_fileHotkey.toggleModes     = 'i'
-VEConf_fileHotkey.newFile         = '+f'
-VEConf_fileHotkey.newDirectory    = '+d'
-VEConf_fileHotkey.switchPanel     = '<tab>'
-VEConf_fileHotkey.quitVE          = 'Q'
-VEConf_fileHotkey.toggleHidden    = 'H'
-VEConf_fileHotkey.search          = 'g/'
-VEConf_fileHotkey.markPlace       = 'm'
-VEConf_fileHotkey.gotoPlace       = "'"
-swith between dirs~
-VEConf_fileHotkey.toUpperDir      = '<bs>'
-VEConf_fileHotkey.gotoForward     = '.'
-VEConf_fileHotkey.gotoBackward    = ','
-VEConf_fileHotkey.favorite        = 'f'
-VEConf_fileHotkey.addToFavorite   = 'F'
-VEConf_fileHotkey.browseHistory   = 'b'
-VEConf_fileHotkey.gotoPath        = '<c-g>'
-single file actions~
-VEConf_fileHotkey.rename          = 'R'
-VEConf_fileHotkey.yankSingle      = 'yy'
-VEConf_fileHotkey.cutSingle       = 'xx'
-VEConf_fileHotkey.showYankList    = 'yl'
-VEConf_fileHotkey.deleteSingle    = 'dd'
-VEConf_fileHotkey.openPreview     = 'u'
-VEConf_fileHotkey.closePreview    = 'U'
-mark~
-VEConf_fileHotkey.toggleSelectUp  = '<s-space>'
-VEConf_fileHotkey.toggleSelectDown= '<space>'
-VEConf_fileHotkey.markViaRegexp   = 'mr'
-VEConf_fileHotkey.markVimFiles    = 'mv'
-VEConf_fileHotkey.markDirectory   = 'md'
-VEConf_fileHotkey.markExecutable  = 'me'
-VEConf_fileHotkey.clearSelect     = 'mc'
-multiple file actions~
-VEConf_fileHotkey.deleteSelected  = 'sd'
-VEConf_fileHotkey.yankSelected    = 'sy'
-VEConf_fileHotkey.cutSelected     = 'sx'
-VEConf_fileHotkey.tabViewMulti    = 'se'
-VEConf_fileHotkey.paste           = 'p'
-VEConf_fileHotkey.diff2files      = '='
-visual mode hotkeys~
-VEConf_fileHotkey.visualSelect    = '<space>'
-VEConf_fileHotkey.visualDelete    = 'd'
-VEConf_fileHotkey.visualYank      = 'y'
-VEConf_fileHotkey.visualCut       = 'x'
-VEConf_fileHotkey.tabView         = 'e'
-VEConf_fileHotkey.openRenamer     = ';r'
-VEConf_fileHotkey.startShell      = ';c'
-VEConf_fileHotkey.startExplorer   = ';e'
+All definable hotkeys and their default bindings refer to section 2 .
 
 7.3.  Command Customization                     *VimExplorer-custcommand*
 
@@ -3224,11 +3218,13 @@ VimExplorer supports three types of command interface:
 single file hotkeys and actions, multi file hotkeys and actions and normal
 hotkeys and actions.
 They are controlled by these variables:
->
-    VEConf_singleFileActions    VEConf_singleFileHotKeys
-    VEConf_multiFileActions     VEConf_multiFileHotKeys
-    VEConf_normalActions        VEConf_normalHotKeys
-<
+
+    |VEConf_singleFileActions|    |VEConf_singleFileHotKeys|
+
+    |VEConf_multiFileActions|     |VEConf_multiFileHotKeys|
+
+    |VEConf_normalActions|        |VEConf_normalHotKeys|
+
 All of them are dicts. Example:
 >
     let VEConf_normalActions = {}
@@ -3245,7 +3241,7 @@ automatically.
     let VEConf_singleFileHotKeys = {}
     let VEConf_singleFileHotKeys['test2'] = 'T2'
     function! VEConf_singleFileActions['test2'](path)
-        call VEPlatform.system("notepad.exe " . a:path)
+        call VEPlatform.system("notepad.exe " . VEPlatform.escape(a:path))
     endfunction
 <
 Here, parameter "path" is the path of file under cursor.
@@ -3289,6 +3285,27 @@ P1.  Case sensitive in Win32
      when starting VE, editing the favorite list or using <c-g> to change
      path. A good suggestion is using <tab> or <ctrl-d> to complete path
      automatically.
+
+==============================================================================
+10. Changelog                                   *VimExplorer-changelog*
+
+0.95
+    - Initial release.
+
+0.96
+    - Bug fix: VE_normalAction not found.
+
+0.97
+    - Change the behaviour of hotkey 'F', now it adds the path under cursor to
+        favorite list. If no path under cursor, use current working path
+        instead.(Thanks to Vincent Wang)
+    - Bug fix: escape ' %#' for path.
+    - Add options |g:VEConf_usingKDE| and |g:VEConf_usingGnome| for starting
+        program in *nix environment.
+    - Check if the script is already loaded, thanks to Dennis Hostetler.
+    - Change default g:VEConf_systemEncoding to '' (empty)
+    - Bug fix: favorite selection out of range.
+
 
 ==============================================================================
 Note 1:
